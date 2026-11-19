@@ -1,0 +1,17 @@
+[
+  {"slug": "city-administrator", "title": "City Administrator",
+   "about": "Proposals to create, define or fund a City Administrator position.",
+   "match": "city administrator"},
+  {"slug": "highway-53", "title": "Highway 53 corridor",
+   "about": "Items about the US Highway 53 corridor through the city.",
+   "match": "\\bUSH ?53\\b|highway 53|\\bhwy\\.? ?53\\b"},
+  {"slug": "budgets", "title": "City budgets",
+   "about": "The operating, capital improvement and capital equipment budgets, and changes to them.",
+   "match": "operating budget|capital improvement (project|program) budget|capital equipment budget|carryover"},
+  {"slug": "tif-districts", "title": "Tax incremental districts (TIF)",
+   "about": "Creating, amending, funding or closing tax incremental districts.",
+   "match": "tax increment|\\bTID\\b|\\bTIF\\b"},
+  {"slug": "borrowing", "title": "Borrowing: bonds and notes",
+   "about": "Authorizing the city to borrow by issuing bonds or promissory notes.",
+   "match": "\\bbonds?\\b|promissory note|state trust fund loan"}
+]

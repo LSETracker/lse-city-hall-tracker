@@ -1,0 +1,7 @@
+data/cache/
+site/
+__pycache__/
+*.sqlite.new
+data/council.sqlite
+data/*.sqlite
+data/*.log

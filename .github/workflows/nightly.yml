@@ -1,0 +1,39 @@
+# Rebuilds the site every night, and on every push to main, and publishes it to GitHub Pages.
+# One-time setup: repository Settings > Pages > Source: "GitHub Actions".
+name: Nightly rebuild
+on:
+  schedule:
+    - cron: "17 9 * * *"   # about 3 or 4 AM in La Crosse
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4      # keeps raw API responses between runs
+        with:
+          path: data/cache
+          key: legistar-cache-${{ github.run_id }}
+          restore-keys: legistar-cache-
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - run: ./run.sh
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
