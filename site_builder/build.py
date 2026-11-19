@@ -105,6 +105,10 @@ NAV = [("index.html", "Home"), ("upcoming.html", "This week"), ("meetings.html",
 YEAR_LINKS = [x.split("=", 1) for x in os.environ.get("SITE_YEAR_LINKS", "").split(",") if "=" in x]
 
 
+def is_cancelled(m):
+    return bool(re.search(r"cancel", (m["comment"] or ""), re.I))
+
+
 class Site:
     def __init__(self):
         self.db = sqlite3.connect(DB)
@@ -153,16 +157,19 @@ class Site:
         root = "../" * depth
         nav = "".join(f'<a href="{root}{h}"{" aria-current=page" if h == current else ""}>{t}</a>' for h, t in NAV)
         years = "".join(f'<a href="{root}{h}">{e(y)} records</a>' for y, h in YEAR_LINKS)
+        desc = "Plain counts and dollars from the City of La Crosse's public records on what the Mayor and Common Council vote on and spend. No grades, no opinions."
         doc = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{e(title)} | LSE City Hall Tracker</title><link rel="stylesheet" href="{root}style.css"></head><body>
+<title>{e(title)} | LSE City Hall Tracker</title>
+<meta name="description" content="{e(desc)}"><meta property="og:type" content="website"><meta property="og:site_name" content="LSE City Hall Tracker">
+<meta property="og:title" content="{e(title)}"><meta property="og:description" content="{e(desc)}"><meta name="twitter:card" content="summary"><link rel="stylesheet" href="{root}style.css"></head><body>
 <header class="site"><div class="wrap"><a class="brand" href="{root}index.html">LSE City Hall Tracker <span class="tag">{e(self.year)}</span></a><button class="menu" type="button" aria-expanded="false" aria-controls="nav">Menu</button><nav id="nav">{nav}{years}</nav></div></header>
 <script>document.documentElement.classList.add('js');(function(){{var h=document.querySelector('header.site'),b=h.querySelector('.menu');
 b.addEventListener('click',function(){{var o=h.classList.toggle('open');b.setAttribute('aria-expanded',o);b.textContent=o?'Close menu':'Menu'}})}})();</script>
 <main><div class="wrap">{body}</div></main>
 <footer><div class="wrap">Data from the City of La Crosse's public <a href="{e(self.meta['source'])}">Legistar records</a>.
 Last updated {e(self.updated.replace('T', ' ').replace('Z', ' UTC'))}. Counts, dollars and published record checks; this site does not grade officials.
-<a href="{root}about.html">How this works and how to report an error</a>.</div></footer>{script}</body></html>"""
+<a href="{root}about.html">How this works and how to report an error</a>. Corrections: <a href="mailto:{CORRECTIONS_EMAIL}">{CORRECTIONS_EMAIL}</a>.</div></footer>{script}</body></html>"""
         full = os.path.join(OUT, path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "w", encoding="utf-8") as f:
@@ -250,9 +257,7 @@ Last updated {e(self.updated.replace('T', ' ').replace('Z', ' UTC'))}. Counts, d
             bullets = [f"The council took up <b>{len({a['item_id'] for a in acts})}</b> items and approved <b>{len(appr)}</b>.",
                        f"<b>{len(rc)}</b> votes were recorded member by member; <b>{len(split)}</b> of those were not unanimous."
                        f" The rest passed by voice or consent vote.",
-                       (f"<b>{len(failed)}</b> motion{'s' if len(failed) != 1 else ''} failed: " +
-                        ", ".join(f"a motion marked “{e((a['action'] or '').capitalize())}” on <a href='{self.item_href(self.items[a['item_id']])}'>{e(self.items[a['item_id']]['name'])}</a>" for a in failed[:4]) + "."
-                        if failed else "No motions failed.")]
+                       self.failed_line(failed)]
             if with_amt:
                 top = max(with_amt, key=lambda i: i["amount"])
                 bullets.append(f"<b>{len(with_amt)}</b> approved items name a dollar amount in their title, adding up to "
@@ -306,6 +311,24 @@ Last updated {e(self.updated.replace('T', ' ').replace('Z', ' UTC'))}. Counts, d
                 b.append(f"<p><a href='meeting/{m['id']}.html'>All {len(acts)} items on this agenda</a></p>")
         self.page("index.html", "Home", "".join(b), "index.html")
 
+    def failed_line(self, failed):
+        """One bullet naming every failed motion, grouped by item, never silently cut off."""
+        if not failed:
+            return "No motions failed."
+        groups = {}
+        for a in failed:
+            groups.setdefault(a["item_id"], []).append((a["action"] or "").capitalize())
+        parts = []
+        for iid, acts in groups.items():
+            it = self.items[iid]
+            what = "; ".join(sorted(set(f"“{e(x)}”" for x in acts if x))) or "a motion"
+            n = len(acts)
+            parts.append(f"{what}{f' ({n} motions)' if n > 1 else ''} on <a href='{self.item_href(it)}'>{e(it['name'])}</a>")
+        shown, rest = parts[:8], len(parts) - 8
+        tail = f", and {rest} more items (see the meeting page)" if rest > 0 else ""
+        return (f"<b>{len(failed)}</b> motion{'s' if len(failed) != 1 else ''} failed, on "
+                f"<b>{len(groups)}</b> item{'s' if len(groups) != 1 else ''}: " + ", ".join(shown) + tail + ".")
+
     def meeting_table(self, ms, root=""):
         if not ms:
             return "<p class='muted'>None.</p>"
@@ -314,7 +337,9 @@ Last updated {e(self.updated.replace('T', ' ').replace('Z', ' UTC'))}. Counts, d
             acts = self.by_meeting[m["id"]]
             n = len({a["item_id"] for a in acts})
             rc = sum(1 for a in acts if a["has_roll_call"])
-            if m["date"] > self.today:
+            if is_cancelled(m):
+                status = "Cancelled"
+            elif m["date"] > self.today:
                 status = "Upcoming"
             elif m["results_pending"]:
                 status = "Results pending"
@@ -354,7 +379,9 @@ list.hidden=true;res.hidden=false;count.textContent=n+' action'+(n==1?'':'s')+' 
             if m["minutes_url"]:
                 links.append(f"<a href='{e(m['minutes_url'])}'>Minutes (PDF)</a>")
             note = ""
-            if m["date"] > self.today:
+            if is_cancelled(m):
+                note = "<p class='note'>The city's record marks this meeting as cancelled, so no votes were held.</p>"
+            elif m["date"] > self.today:
                 note = "<p class='note'>This meeting has not happened yet. Items below are scheduled, not decided.</p>"
             elif m["results_pending"]:
                 note = "<p class='note'>Results pending. The agenda is posted but the city has not posted results or minutes yet.</p>"
